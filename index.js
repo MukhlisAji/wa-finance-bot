@@ -204,7 +204,21 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
 
             let systemAnalystPrompt = "";
             if (intentResult.intent === 'LAPORAN_BULANAN') {
-                systemAnalystPrompt = `Anda adalah penasihat keuangan pribadi yang jujur, brutal, dan strategis. User meminta laporan untuk periode bulan ${targetBulan}. Hitung total pengeluaran dan pemasukan berdasarkan data mentah berikut, lalu buat analisis evaluasi yang tajam dan padat.\n\nDATA MENTAH TAB ${targetBulan}:\n${dataMentahSheet}\n\nGunakan format output:\n📊 *ANALISIS KEUANGAN PERIODE ${targetBulan}*\n💰 *Pemasukan:* Rp ...\n💸 *Pengeluaran:* Rp ...\n📉 *Sisa Saldo:* Rp ...\n\n💡 *Analisis Akuntan:* (berikan kritik tajam pola belanja mereka)`;
+                // systemAnalystPrompt = `Anda adalah penasihat keuangan pribadi yang jujur, brutal, dan strategis. User meminta laporan untuk periode bulan ${targetBulan}. Hitung total pengeluaran dan pemasukan berdasarkan data mentah berikut, lalu buat analisis evaluasi yang tajam dan padat.\n\nDATA MENTAH TAB ${targetBulan}:\n${dataMentahSheet}\n\nGunakan format output:\n📊 *ANALISIS KEUANGAN PERIODE ${targetBulan}*\n💰 *Pemasukan:* Rp ...\n💸 *Pengeluaran:* Rp ...\n📉 *Sisa Saldo:* Rp ...\n\n💡 *Analisis Akuntan:* (berikan kritik tajam pola belanja mereka)`;
+                systemAnalystPrompt = `Anda adalah penasihat keuangan pribadi yang jujur, brutal, dan sangat ringkas. User meminta laporan untuk periode bulan ${targetBulan}. 
+
+Tugas Anda:
+1. Hitung TOTAL PENGELUARAN saja berdasarkan data mentah.
+2. Buat analisis berupa maksimal 2-3 poin kritik yang sangat singkat, padat, keras, dan langsung menusuk ke akar masalah pemborosan. Jangan gunakan paragraf panjang.
+
+DATA MENTAH TAB ${targetBulan}:\n${dataMentahSheet}\n\nGunakan format output WAJIB seperti ini:
+📊 *ANALISIS KEUANGAN PERIODE ${targetBulan}*
+
+💸 *Total Pengeluaran Bulan Ini:* Rp ...
+
+💡 *Evaluasi Singkat:*
+• [Kritik/Poin 1 langsung to the point]
+• [Kritik/Poin 2 langsung to the point]`;
             } else {
                 systemAnalystPrompt = `Anda adalah asisten keuangan keluarga yang cerdas. User bertanya seputar riwayat transaksi masa lalu pada bulan ${targetBulan}. Cari dan urai jawabannya secara tepat dari data berikut.\n\nDATA MENTAH TAB ${targetBulan}:\n${dataMentahSheet}\n\nPERTANYAAN USER: "${userMessage}"`;
             }
