@@ -18,7 +18,8 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
     // SCHEDULE 1: Reminder & Apresiasi Malam
     // Untuk tes harian instan silakan sesuaikan angkanya (Contoh: '25 15 * * *')
     // =========================================================================
-    cron.schedule('25 15 * * *', async () => {
+    const jadwalReminder = process.env.CRON_JADWAL_REMINDER;
+    cron.schedule(jadwalReminder, async () => {
         console.log('[Cron Job]: Mengecek catatan harian untuk evaluasi malam...');
         const stringHariIni = new Date().toISOString().split('T')[0];
         const bulanBerjalan = stringHariIni.substring(0, 7);
@@ -85,7 +86,8 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
     // SCHEDULE 2: Auto Push Report Bulanan
     // Untuk tes bulanan instan silakan sesuaikan angkanya (Contoh: '25 15 * * *')
     // =========================================================================
-    cron.schedule('25 15 * * *', async () => {
+    const jadwalReport = process.env.CRON_JADWAL_REPORT;
+    cron.schedule(jadwalReport, async () => {
         console.log('[Cron Job]: Mengecek data untuk laporan bulanan otomatis...');
         const stringHariIni = new Date().toISOString().split('T')[0];
         const targetBulan = stringHariIni.substring(0, 7);

@@ -114,21 +114,22 @@ client.on('message', async (msg) => {
     const INTENT_PROMPT = `Anda adalah manajer gerbang utama untuk bot keuangan keluarga.
 Tugas Anda adalah menganalisis pesan user dan mengklasifikasikannya ke dalam salah satu intent berikut:
 
+
 1. CATAT : Jika user berniat mencatat transaksi keuangan (pemasukan atau pengeluaran). Contoh: "beli martabak 100k", "gaji masuk 10jt".
 2. LAPORAN_BULANAN : Jika user meminta rekap, summary, total pengeluaran, baik bulan ini, bulan lalu, atau bulan tertentu yang spesifik. Contoh: "bantu kirimkan pengeluaran selama bulan ini", "minta summary bulan lalu dong", "rekap mei kemarin ada?".
 3. TANYA_HISTORI : Jika user bertanya tentang histori atau apa yang dibeli di masa lalu. Contoh: "tanggal 18 kemarin aku beli apa aja ya".
-4. DILUAR_KONTEKS : Jika user menyapa atau mengobrol hal selain keuangan keluarga. Contoh: "hi chat", "halo robot".
+4. HAPUS : Jika user ingin membatalkan, menghapus, atau merevisi transaksi yang baru saja dimasukkan karena salah ketik/input. Contoh: "eh salah hapus transaksi terakhir dong", "batalin transaksi tadi", "revisi dong yang tadi salah", "hapus baris terakhir".
+5. DILUAR_KONTEKS : Jika user menyapa atau mengobrol hal selain keuangan keluarga. Contoh: "hi chat", "halo robot".
 
 Suntikan Informasi Konteks Kalender saat ini:
 - Hari ini tanggal: ${stringHariIni} (Bulan berjalan: ${bulanBerjalan})
 
 Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
 {
-  "intent": "CATAT|LAPORAN_BULANAN|TANYA_HISTORI|DILUAR_KONTEKS",
+  "intent": "CATAT|LAPORAN_BULANAN|TANYA_HISTORI|HAPUS|DILUAR_KONTEKS",
   "alasan": "penjelasan singkat",
   "target_bulan": "YYYY-MM" (Isi bidang ini khusus untuk intent LAPORAN_BULANAN atau TANYA_HISTORI dengan mengevaluasi konteks waktu yang diminta user. Misal jika user bilang bulan lalu dari juni 2026, maka isinya "2026-05". Jika bulan ini isinya "2026-06". Jika tidak terdeteksi, default gunakan "${bulanBerjalan}")
 }`;
-
     try {
         // REFAKTOR: Menggunakan model dari .env secara dinamis
         const intentResponse = await ai.models.generateContent({
@@ -265,6 +266,65 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
             const replyText = `✅ *Pencatatan Berhasil!*\n\n📅 Tanggal Transaksi: ${dataJson.tanggal}\n📂 Disimpan di Tab: *${targetTabTransaksi}*\n💰 Nominal: Rp ${finalNominal.toLocaleString('id-ID')}\n🗂 Kategori: ${dataJson.kategori}\n📝 Ket: ${dataJson.keterangan}\n📊 Tipe: ${dataJson.tipe}`;
             await msg.reply(replyText);
             await chat.clearState();
+        }
+
+        if (intentResult.intent === 'HAPUS') {
+            const targetBulan = bulanBerjalan; // Selalu targetkan bulan aktif saat ini
+            
+            // 1. Ambil seluruh data di tab bulan ini untuk mengetahui posisi baris terakhir
+            const response = await sheets.spreadsheets.values.get({
+                spreadsheetId: TARGET_SPREADSHEET,
+                range: `${targetBulan}!A:E`,
+            });
+
+            const rows = response.data.values;
+            
+            // Proteksi: Jika sheet kosong atau hanya berisi header (baris <= 1)
+            if (!rows || rows.length <= 1) {
+                await msg.reply(`⚠️ *Gagal Hapus:* Tidak ada data transaksi yang bisa dihapus di lembar tab bulan ini (*${targetBulan}*).`);
+                await chat.clearState();
+                return;
+            }
+
+            const barisTerakhirIdx = rows.length; // Posisi nomor baris asli di Google Sheet
+            const dataTerhapus = rows[rows.length - 1]; // Mengambil array data baris paling bawah tersebut
+
+            // 2. Ambil sheetId internal Google dari nama tab string (diperlukan untuk method deleteDimension)
+            const sheetMetaData = await sheets.spreadsheets.get({ spreadsheetId: TARGET_SPREADSHEET });
+            const targetSheetObject = sheetMetaData.data.sheets.find(s => s.properties.title === targetBulan);
+            
+            if (!targetSheetObject) {
+                throw new Error(`Tab ${targetBulan} tidak ditemukan saat mencoba menghapus.`);
+            }
+            
+            const internalSheetId = targetSheetObject.properties.sheetId;
+
+            // 3. Eksekusi penghapusan baris paling bawah secara presisi menggunakan batchUpdate
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId: TARGET_SPREADSHEET,
+                requestBody: {
+                    requests: [{
+                        deleteDimension: {
+                            range: {
+                                sheetId: internalSheetId,
+                                dimension: "ROWS",
+                                startIndex: barisTerakhirIdx - 1, // Index dimulai dari 0 (inklusif)
+                                endIndex: barisTerakhirIdx         // Batas akhir (eksklusif)
+                            }
+                        }
+                    }]
+                }
+            });
+
+            // 4. Format nominal lama untuk ditaruh di notifikasi konfirmasi
+            const nominalFormatted = parseInt(String(dataTerhapus[2]).replace(/[^0-9]/g, '')) || 0;
+
+            // 5. Kirim umpan balik sukses ke WhatsApp pengirim
+            const deleteConfirmationText = `🗑️ *Penghapusan Berhasil!*\n\nTransaksi terakhir pada tab *${targetBulan}* telah dicabut dari Google Sheet:\n\n📅 Tanggal: ${dataTerhapus[0]}\n🗂️ Kategori: ${dataTerhapus[1]}\n💰 Nominal: Rp ${nominalFormatted.toLocaleString('id-ID')}\n📝 Keterangan: ${dataTerhapus[3]}\n📊 Tipe: ${dataTerhapus[4]}\n\n_Silakan ketik ulang transaksi yang benar jika ingin merevisi._`;
+            
+            await msg.reply(deleteConfirmationText);
+            await chat.clearState();
+            return;
         }
 
     } catch (error) {
