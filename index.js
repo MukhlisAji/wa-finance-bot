@@ -118,8 +118,9 @@ Tugas Anda adalah menganalisis pesan user dan mengklasifikasikannya ke dalam sal
 1. CATAT : Jika user berniat mencatat transaksi keuangan (pemasukan atau pengeluaran). Contoh: "beli martabak 100k", "gaji masuk 10jt".
 2. LAPORAN_BULANAN : Jika user meminta rekap, summary, total pengeluaran, baik bulan ini, bulan lalu, atau bulan tertentu yang spesifik. Contoh: "bantu kirimkan pengeluaran selama bulan ini", "minta summary bulan lalu dong", "rekap mei kemarin ada?".
 3. TANYA_HISTORI : Jika user bertanya tentang histori atau apa yang dibeli di masa lalu. Contoh: "tanggal 18 kemarin aku beli apa aja ya".
-4. HAPUS : Jika user ingin membatalkan, menghapus, atau merevisi transaksi yang baru saja dimasukkan karena salah ketik/input. Contoh: "eh salah hapus transaksi terakhir dong", "batalin transaksi tadi", "revisi dong yang tadi salah", "hapus baris terakhir".
-5. DILUAR_KONTEKS : Jika user menyapa atau mengobrol hal selain keuangan keluarga. Contoh: "hi chat", "halo robot".
+4. HAPUS : Jika user ingin membatalkan, menghapus, atau merevisi transaksi yang baru saja dimasukkan karena salah ketik/input. Contoh: "eh salah hapus transaksi terakhir dong", "batalin transaksi tadi", "hapus baris terakhir".
+5. EDIT : Jika user ingin mengubah atau merevisi nominal angka dari transaksi yang baru saja dimasukkan karena salah ketik. Contoh: "edit dong, salah itu harusnya 75k", "revisi nilainya jadi 150000".
+6. DILUAR_KONTEKS : Jika user menyapa atau mengobrol hal selain keuangan keluarga. Contoh: "hi chat", "halo robot".
 
 Suntikan Informasi Konteks Kalender saat ini:
 - Hari ini tanggal: ${stringHariIni} (Bulan berjalan: ${bulanBerjalan})
@@ -149,8 +150,7 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
 
         // ============= JALUR A: DILUAR KONTEKS =============
         if (intentResult.intent === 'DILUAR_KONTEKS') {
-            const REJECT_PROMPT = `Anda adalah robot akuntan keluarga yang tegas tapi lucu. Tolak pesan user karena tidak ada hubungannya dengan pencatatan keuangan keluarga. Berikan sindiran halus agar kembali fokus mencatat uang. Jangan kaku.\n\nPESAN USER: "${userMessage}"`;
-            
+            const REJECT_PROMPT = `Anda adalah robot akuntan keluarga yang tegas tapi lucu. Tolak pesan user karena tidak ada hubungannya dengan pencatatan keuangan keluarga. Berikan sindiran halus agar kembali fokus mencatat uang. Jangan kaku. Jawab dengan singkat (maksimal 3 kalimat).\n\nPESAN USER: "${userMessage}"`;
             // REFAKTOR: Menggunakan model dari .env secara dinamis
             const rejectResponse = await ai.models.generateContent({
                 model: TARGET_MODEL,
@@ -323,6 +323,53 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
             const deleteConfirmationText = `🗑️ *Penghapusan Berhasil!*\n\nTransaksi terakhir pada tab *${targetBulan}* telah dicabut dari Google Sheet:\n\n📅 Tanggal: ${dataTerhapus[0]}\n🗂️ Kategori: ${dataTerhapus[1]}\n💰 Nominal: Rp ${nominalFormatted.toLocaleString('id-ID')}\n📝 Keterangan: ${dataTerhapus[3]}\n📊 Tipe: ${dataTerhapus[4]}\n\n_Silakan ketik ulang transaksi yang benar jika ingin merevisi._`;
             
             await msg.reply(deleteConfirmationText);
+            await chat.clearState();
+            return;
+        }
+        
+        // ============= JALUR F: EDIT NOMINAL TRANSAKSI TERAKHIR =============
+        if (intentResult.intent === 'EDIT') {
+            const targetBulan = bulanBerjalan;
+            const nominalBaru = parseInt(intentResult.nominal_baru) || 0;
+
+            if (nominalBaru <= 0) {
+                await msg.reply(`⚠️ *Gagal Edit:* Sistem tidak berhasil mengekstrak nominal baru dari pesan Anda. Pastikan menulis angka dengan jelas (Contoh: "harusnya 75k").`);
+                await chat.clearState();
+                return;
+            }
+
+            // 1. Ambil data untuk tahu baris terakhir
+            const response = await sheets.spreadsheets.values.get({
+                spreadsheetId: TARGET_SPREADSHEET,
+                range: `${targetBulan}!A:E`,
+            });
+
+            const rows = response.data.values;
+            if (!rows || rows.length <= 1) {
+                await msg.reply(`⚠️ *Gagal Edit:* Tidak ada data transaksi yang bisa diedit di tab bulan ini.`);
+                await chat.clearState();
+                return;
+            }
+
+            const barisTerakhirIdx = rows.length; // Posisi baris asli di Google Sheet
+            const dataLama = rows[rows.length - 1]; // Data lama sebelum diedit
+            const nominalLama = parseInt(String(dataLama[2]).replace(/[^0-9]/g, '')) || 0;
+
+            // 2. Eksekusi update HANYA pada Kolom C (Nominal) di baris terakhir tersebut
+            // Kolom C dalam notasi A1 untuk baris terakhir adalah C{barisTerakhirIdx}
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: TARGET_SPREADSHEET,
+                range: `${targetBulan}!C${barisTerakhirIdx}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: {
+                    values: [[nominalBaru]]
+                }
+            });
+
+            // 3. Kirim konfirmasi balik ke WhatsApp
+            const editConfirmationText = `📝 *Revisi Nominal Berhasil!*\n\nTransaksi terakhir telah diperbarui di Google Sheet:\n\n📅 Tanggal: ${dataLama[0]}\n🗂️ Kategori: ${dataLama[1]}\n📝 Keterangan: ${dataLama[3]}\n📊 Tipe: ${dataLama[4]}\n\n💰 *Nominal Lama:* Rp ${nominalLama.toLocaleString('id-ID')}\n🔥 *Nominal Baru:* Rp ${nominalBaru.toLocaleString('id-ID')}`;
+            
+            await msg.reply(editConfirmationText);
             await chat.clearState();
             return;
         }
