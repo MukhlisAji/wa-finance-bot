@@ -1,14 +1,33 @@
 const cron = require('node-cron');
 
-function jalankanOtomatisasi(client, sheets, ai, MY_TARGET_ID, pastikanTabTersedia) {
-    console.log('--- [Module Cron]: Scheduler Berhasil Dimuat (WIB Lock dengan Fitur Apresiasi) ---');
+function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
+    console.log('--- [Module Cron]: Scheduler Berhasil Dimuat (Mode Multi-Private Chat) ---');
 
-    // TEST 1: Reminder & Apresiasi Malam (Diset jam 15:25 WIB / 17:25 JST untuk tes instan harian)
-    // Silakan ganti kembali ke '0 21 * * *' (Jam 21:00 WIB) jika tes ini sudah berhasil.
+    // Ambil variabel model secara terpusat dari .env (dengan fallback aman)
+    const TARGET_MODEL = process.env.DEFAULT_MODEL || 'gemini-1.5-flash';
+    const TIMEZONE_CONFIG = process.env.SYSTEM_TIMEZONE || 'Asia/Jakarta';
+
+    // Helper function untuk mengambil daftar nomor tujuan privat dari .env
+    const dapatkanTargetNomor = () => {
+        return process.env.WHITELIST_NUMBERS 
+            ? process.env.WHITELIST_NUMBERS.split(',').map(num => num.trim()) 
+            : [];
+    };
+
+    // =========================================================================
+    // SCHEDULE 1: Reminder & Apresiasi Malam
+    // Untuk tes harian instan silakan sesuaikan angkanya (Contoh: '25 15 * * *')
+    // =========================================================================
     cron.schedule('25 15 * * *', async () => {
         console.log('[Cron Job]: Mengecek catatan harian untuk evaluasi malam...');
         const stringHariIni = new Date().toISOString().split('T')[0];
         const bulanBerjalan = stringHariIni.substring(0, 7);
+        const targetNomorArray = dapatkanTargetNomor();
+
+        if (targetNomorArray.length === 0) {
+            console.log('[Cron Job]: Gagal mengirim reminder, WHITELIST_NUMBERS kosong di .env');
+            return;
+        }
 
         try {
             await pastikanTabTersedia(process.env.SPREADSHEET_ID, bulanBerjalan);
@@ -26,42 +45,53 @@ function jalankanOtomatisasi(client, sheets, ai, MY_TARGET_ID, pastikanTabTersed
 
             // KONDISI A: JIKA BELUM MENCATAT TRANSAKSI SAMA SEKALI HARI INI
             if (!sudahCatatHariIni) {
-                const PROMPT_REMINDER = "Anda adalah asisten keuangan keluarga yang kasual, lucu, dan agak cerewet. Ingatkan pasangan (Ayah/Bunda) dengan pesan singkat bahwa mereka belum mencatat satu pun pengeluaran hari ini. Gunakan emoji yang relevan.";
+                const PROMPT_REMINDER = "Anda adalah asisten keuangan keluarga yang kasual, lucu, dan agak cerewet. Ingatkan pasangan dengan pesan singkat bahwa hari ini pencatatan keuangan keluarga masih kosong/belum ada yang dicatat. Gunakan emoji yang relevan.";
                 const aiResponse = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: "Buat pesan pengingat malam karena belum mencatat uang",
+                    model: TARGET_MODEL,
+                    contents: "Buat pesan pengingat malam pendek karena belum mencatat uang",
                     config: { systemInstruction: PROMPT_REMINDER, temperature: 0.8 }
                 });
 
-                await client.sendMessage(MY_TARGET_ID, `🔔 *PENGINGAT MALAM COY*\n\n${aiResponse.text}`);
-                console.log('[Cron Job]: Pesan reminder harian berhasil terkirim.');
+                // Kirim pesan privat ke masing-masing nomor di whitelist
+                for (const nomorTujuan of targetNomorArray) {
+                    await client.sendMessage(nomorTujuan, `🔔 *PENGINGAT MALAM KELUARGA*\n\n${aiResponse.text}`);
+                    console.log(`[Cron Job]: Pesan reminder harian terkirim ke: ${nomorTujuan}`);
+                }
             
-            // KONDISI B: JIKA SUDAH DISIPLIN MENCATAT HARI INI (FITUR BARU)
+            // KONDISI B: JIKA SUDAH DISIPLIN MENCATAT HARI INI
             } else {
-                const PROMPT_APRESIASI = "Anda adalah asisten keuangan keluarga yang sangat suportif, hangat, dan tahu cara menghargai kedisiplinan. Berikan ucapan terima kasih yang tulus dan sedikit pujian kreatif karena mereka sudah tertib mencatat transaksi hari ini. Gunakan emoji yang manis.";
+                const PROMPT_APRESIASI = "Anda adalah asisten keuangan keluarga yang sangat suportif, hangat, dan tahu cara menghargai kedisiplinan. Berikan ucapan terima kasih yang tulus karena hari ini tim keluarga sudah tertib mencatat transaksi ke dalam sistem. Gunakan emoji yang manis.";
                 const aiResponse = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
+                    model: TARGET_MODEL,
                     contents: "Buat ucapan terima kasih apresiatif karena sudah mencatat keuangan hari ini",
                     config: { systemInstruction: PROMPT_APRESIASI, temperature: 0.8 }
                 });
 
-                await client.sendMessage(MY_TARGET_ID, `💖 *APRESIASI DISIPLIN KEUANGAN*\n\n${aiResponse.text}`);
-                console.log('[Cron Job]: Pesan apresiasi berhasil terkirim karena user sudah mencatat.');
+                // Kirim pesan privat ke masing-masing nomor di whitelist
+                for (const nomorTujuan of targetNomorArray) {
+                    await client.sendMessage(nomorTujuan, `💖 *APRESIASI DISIPLIN KEUANGAN*\n\n${aiResponse.text}`);
+                    console.log(`[Cron Job]: Pesan apresiasi harian terkirim ke: ${nomorTujuan}`);
+                }
             }
         } catch (error) {
             console.error('Gagal mengeksekusi Cron Reminder/Apresiasi:', error.message);
         }
     }, {
         scheduled: true,
-        timezone: "Asia/Jakarta"
+        timezone: TIMEZONE_CONFIG
     });
 
-    // TEST 2: Auto Push Report Bulanan (Diset jam 15:25 WIB / 17:25 JST untuk tes instan bulanan)
-    // Silakan ganti kembali ke '0 8 1 * *' (Tanggal 1 jam 08:00 Pagi WIB) jika tes ini sudah berhasil.
+    // =========================================================================
+    // SCHEDULE 2: Auto Push Report Bulanan
+    // Untuk tes bulanan instan silakan sesuaikan angkanya (Contoh: '25 15 * * *')
+    // =========================================================================
     cron.schedule('25 15 * * *', async () => {
         console.log('[Cron Job]: Mengecek data untuk laporan bulanan otomatis...');
         const stringHariIni = new Date().toISOString().split('T')[0];
         const targetBulan = stringHariIni.substring(0, 7);
+        const targetNomorArray = dapatkanTargetNomor();
+
+        if (targetNomorArray.length === 0) return;
 
         try {
             await pastikanTabTersedia(process.env.SPREADSHEET_ID, targetBulan);
@@ -73,7 +103,9 @@ function jalankanOtomatisasi(client, sheets, ai, MY_TARGET_ID, pastikanTabTersed
             const rows = response.data.values;
             if (!rows || rows.length <= 1) {
                 console.log(`[Cron Job]: Tab ${targetBulan} ditemukan tetapi belum memiliki data.`);
-                await client.sendMessage(MY_TARGET_ID, `📊 *LAPORAN BULANAN OTOMATIS (${targetBulan})*\n\nSistem berhasil memeriksa sub-tab bulan ini, namun belum ada transaksi terekam yang bisa dievaluasi.`);
+                for (const nomorTujuan of targetNomorArray) {
+                    await client.sendMessage(nomorTujuan, `📊 *LAPORAN BULANAN OTOMATIS (${targetBulan})*\n\nSistem berhasil memeriksa lembar tab bulan ini, namun belum ada transaksi terekam yang bisa dievaluasi.`);
+                }
                 return;
             }
 
@@ -89,26 +121,28 @@ function jalankanOtomatisasi(client, sheets, ai, MY_TARGET_ID, pastikanTabTersed
                 daftarTransaksi.push(`- [${tanggal}] ${kategori} | ${keterangan}: Rp ${cleanNominal.toLocaleString('id-ID')}`);
             }
 
-            const RANGKUMAN_PROMPT = `Anda adalah penasihat keuangan pribadi yang brutal, jujur, dan strategis. Berikan evaluasi tajam dan mendalam untuk penutupan laporan bulan ${targetBulan}.\n\nDATA TRANSAKSI:\nTotal Pemasukan: Rp ${totalPemasukan.toLocaleString('id-ID')}\nTotal Pengeluaran: Rp ${totalPengeluaran.toLocaleString('id-ID')}\nDetail:\n${daftarTransaksi.join('\n')}`;
+            const RANGKUMAN_PROMPT = `Anda adalah penasihat keuangan pribadi yang jujur, objektif, dan strategis. Berikan evaluasi tajam, ringkas, dan mendalam untuk penutupan laporan bulan ${targetBulan}.\n\nDATA TRANSAKSI:\nTotal Pemasukan: Rp ${totalPemasukan.toLocaleString('id-ID')}\nTotal Pengeluaran: Rp ${totalPengeluaran.toLocaleString('id-ID')}\nDetail:\n${daftarTransaksi.join('\n')}`;
             
             const aiResponse = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: TARGET_MODEL,
                 contents: RANGKUMAN_PROMPT,
                 config: { temperature: 0.7 }
             });
 
             const headerLaporan = `📊 *LAPORAN BULANAN OTOMATIS (${targetBulan})*\n\n💰 *Pemasukan:* Rp ${totalPemasukan.toLocaleString('id-ID')}\n💸 *Pengeluaran:* Rp ${totalPengeluaran.toLocaleString('id-ID')}\n📉 *Sisa Saldo:* Rp ${(totalPemasukan - totalPengeluaran).toLocaleString('id-ID')}\n\n`;
             
-            await client.sendMessage(MY_TARGET_ID, headerLaporan + aiResponse.text);
-            console.log('[Cron Job]: Laporan bulanan otomatis berhasil dikirim.');
+            // Kirim laporan bulanan ke masing-masing nomor di whitelist via private chat
+            for (const nomorTujuan of targetNomorArray) {
+                await client.sendMessage(nomorTujuan, headerLaporan + aiResponse.text);
+                console.log(`[Cron Job]: Laporan bulanan otomatis berhasil terkirim ke privat chat: ${nomorTujuan}`);
+            }
         } catch (error) {
             console.error('Gagal mengeksekusi Cron Push Report:', error.message);
         }
     }, {
         scheduled: true,
-        timezone: "Asia/Jakarta"
+        timezone: TIMEZONE_CONFIG
     });
 }
 
 module.exports = { jalankanOtomatisasi };
-root@vps151820-bwu:~/bot# 

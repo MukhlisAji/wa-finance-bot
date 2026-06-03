@@ -2,19 +2,16 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const { GoogleGenAI } = require('@google/genai');
 const { google } = require('googleapis');
-const { jalankanOtomatisasi } = require('./cron'); // Mengimpor file cron terpisah
+const { jalankanOtomatisasi } = require('./cron');
 require('dotenv').config();
 
-const MY_TARGET_ID = '230626892509187@lid';
-
 const auth = new google.auth.GoogleAuth({
-    keyFile: '/root/bot/google-credentials.json',
+    keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 const sheets = google.sheets({ version: 'v4', auth });
-const ai = new GoogleGenAI({ apiKey: "AIzaSyBdr2Hs7gMYFKUmQ77h9Q9y36KRypO0NyY" });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Fungsi pembantu untuk memastikan sebuah Tab Bulanan tersedia di Google Sheet
 async function pastikanTabTersedia(spreadsheetId, namaTab) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId });
@@ -76,13 +73,29 @@ client.on('ready', () => {
     console.log('\n--- SYSTEM BIBLE V5.1: MODULAR CORE ENGINE ONLINE ---\n');
     
     // Mengeksekusi modul otomatisasi waktu dengan melemparkan dependensi yang dibutuhkan
-    jalankanOtomatisasi(client, sheets, ai, MY_TARGET_ID, pastikanTabTersedia);
+    jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia);
 });
 
 client.on('message', async (msg) => {
-    if (msg.from !== MY_TARGET_ID) return;
+    const pengirimId = msg.from;
 
-    const userMessage = msg.body.trim();
+    // 1. Ambil daftar whitelist dari .env dan pecah menjadi Array bersih
+    const daftarWhitelist = process.env.WHITELIST_NUMBERS 
+        ? process.env.WHITELIST_NUMBERS.split(',').map(num => num.trim()) 
+        : [];
+
+    // 2. Validasi ketat apakah pengirim ada di dalam daftar whitelist
+    const apakahUserSah = daftarWhitelist.includes(pengirimId);
+
+    if (!apakahUserSah) {
+        console.log(`[Security Alert]: Chat dari nomor tidak dikenal diabaikan: ${pengirimId}`);
+        return; 
+    }
+
+    console.log(`[Bot Engine]: Memproses chat sah dari: ${pengirimId}`);
+    
+    // FIX ERROR: Gabungkan ekstraksi pesan dan sanitasi trim() dalam satu deklarasi tunggal
+    const userMessage = msg.body ? msg.body.trim() : '';
     if (!userMessage) return;
 
     const chat = await msg.getChat();
@@ -90,6 +103,10 @@ client.on('message', async (msg) => {
 
     const stringHariIni = new Date().toISOString().split('T')[0];
     const bulanBerjalan = stringHariIni.substring(0, 7); // Format: YYYY-MM
+
+    // Tentukan model target secara dinamis dari file .env (dengan fallback aman)
+    const TARGET_MODEL = process.env.DEFAULT_MODEL || 'gemini-1.5-flash';
+    const TARGET_SPREADSHEET = process.env.SPREADSHEET_ID;
 
     // ==========================================
     // LAYER 1: INTENT CLASSIFICATION
@@ -113,8 +130,9 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
 }`;
 
     try {
+        // REFAKTOR: Menggunakan model dari .env secara dinamis
         const intentResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: TARGET_MODEL,
             contents: userMessage,
             config: { systemInstruction: INTENT_PROMPT, temperature: 0.1 }
         });
@@ -131,8 +149,10 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
         // ============= JALUR A: DILUAR KONTEKS =============
         if (intentResult.intent === 'DILUAR_KONTEKS') {
             const REJECT_PROMPT = `Anda adalah robot akuntan keluarga yang tegas tapi lucu. Tolak pesan user karena tidak ada hubungannya dengan pencatatan keuangan keluarga. Berikan sindiran halus agar kembali fokus mencatat uang. Jangan kaku.\n\nPESAN USER: "${userMessage}"`;
+            
+            // REFAKTOR: Menggunakan model dari .env secara dinamis
             const rejectResponse = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: TARGET_MODEL,
                 contents: REJECT_PROMPT,
                 config: { temperature: 0.7 }
             });
@@ -153,11 +173,11 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
                 return;
             }
 
-            // Pastikan tabnya ada sebelum dibaca (untuk mencegah error 400 jika tab kosong belum terbentuk)
-            await pastikanTabTersedia(process.env.SPREADSHEET_ID, targetBulan);
+            // Pastikan tabnya ada sebelum dibaca
+            await pastikanTabTersedia(TARGET_SPREADSHEET, targetBulan);
 
             const response = await sheets.spreadsheets.values.get({
-                spreadsheetId: process.env.SPREADSHEET_ID,
+                spreadsheetId: TARGET_SPREADSHEET,
                 range: `${targetBulan}!A:E`,
             });
 
@@ -177,8 +197,9 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
                 systemAnalystPrompt = `Anda adalah asisten keuangan keluarga yang cerdas. User bertanya seputar riwayat transaksi masa lalu pada bulan ${targetBulan}. Cari dan urai jawabannya secara tepat dari data berikut.\n\nDATA MENTAH TAB ${targetBulan}:\n${dataMentahSheet}\n\nPERTANYAAN USER: "${userMessage}"`;
             }
 
+            // REFAKTOR: Menggunakan model dari .env secara dinamis
             const sheetAiResponse = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: TARGET_MODEL,
                 contents: userMessage,
                 config: { systemInstruction: systemAnalystPrompt, temperature: 0.3 }
             });
@@ -207,8 +228,9 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
   "tipe": "Pengeluaran"
 }`;
 
+            // REFAKTOR: Menggunakan model dari .env secara dinamis
             const recordResponse = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: TARGET_MODEL,
                 contents: userMessage,
                 config: { systemInstruction: ACCOUNTANT_PROMPT, temperature: 0.1 }
             });
@@ -225,14 +247,14 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
             if (finalNominal <= 0) throw new Error("Nominal transaksi tidak valid.");
 
             // Tentukan target tab bulanan berdasarkan tanggal transaksi hasil kalkulasi Gemini
-            const targetTabTransaksi = dataJson.tanggal.substring(0, 7); // Contoh: "2026-06"
+            const targetTabTransaksi = dataJson.tanggal.substring(0, 7);
 
             // Amankan gerbang: Pastikan tab bulanan yang dituju sudah dibuat di Google Sheet
-            await pastikanTabTersedia(process.env.SPREADSHEET_ID, targetTabTransaksi);
+            await pastikanTabTersedia(TARGET_SPREADSHEET, targetTabTransaksi);
 
             // Masukkan baris data ke dalam tab bulanan yang spesifik
             await sheets.spreadsheets.values.append({
-                spreadsheetId: process.env.SPREADSHEET_ID,
+                spreadsheetId: TARGET_SPREADSHEET,
                 range: `${targetTabTransaksi}!A:E`,
                 valueInputOption: 'USER_ENTERED',
                 requestBody: {
