@@ -101,7 +101,10 @@ client.on('message', async (msg) => {
     const chat = await msg.getChat();
     await chat.sendStateTyping();
 
-    const stringHariIni = new Date().toISOString().split('T')[0];
+    // const stringHariIni = new Date().toISOString().split('T')[0];
+    const stringHariIni = new Date().toLocaleDateString('en-CA', { 
+        timeZone: process.env.SYSTEM_TIMEZONE || 'Asia/Jakarta' 
+    });
     const bulanBerjalan = stringHariIni.substring(0, 7); // Format: YYYY-MM
 
     // Tentukan model target secara dinamis dari file .env (dengan fallback aman)
@@ -111,15 +114,17 @@ client.on('message', async (msg) => {
     // ==========================================
     // LAYER 1: INTENT CLASSIFICATION
     // ==========================================
+   // ==========================================
+    // LAYER 1: INTENT CLASSIFICATION
+    // ==========================================
     const INTENT_PROMPT = `Anda adalah manajer gerbang utama untuk bot keuangan keluarga.
 Tugas Anda adalah menganalisis pesan user dan mengklasifikasikannya ke dalam salah satu intent berikut:
-
 
 1. CATAT : Jika user berniat mencatat transaksi keuangan (pemasukan atau pengeluaran). Contoh: "beli martabak 100k", "gaji masuk 10jt".
 2. LAPORAN_BULANAN : Jika user meminta rekap, summary, total pengeluaran, baik bulan ini, bulan lalu, atau bulan tertentu yang spesifik. Contoh: "bantu kirimkan pengeluaran selama bulan ini", "minta summary bulan lalu dong", "rekap mei kemarin ada?".
 3. TANYA_HISTORI : Jika user bertanya tentang histori atau apa yang dibeli di masa lalu. Contoh: "tanggal 18 kemarin aku beli apa aja ya".
-4. HAPUS : Jika user ingin membatalkan, menghapus, atau merevisi transaksi yang baru saja dimasukkan karena salah ketik/input. Contoh: "eh salah hapus transaksi terakhir dong", "batalin transaksi tadi", "hapus baris terakhir".
-5. EDIT : Jika user ingin mengubah atau merevisi nominal angka dari transaksi yang baru saja dimasukkan karena salah ketik. Contoh: "edit dong, salah itu harusnya 75k", "revisi nilainya jadi 150000".
+4. HAPUS : Jika user ingin membatalkan atau menghapus transaksi terakhir. Contoh: "hapus transaksi tadi", "batalin dong".
+5. EDIT : Jika user ingin mengubah atau merevisi nominal angka dari transaksi yang sudah dimasukkan (baik yang baru saja diinput atau yang lampau). Contoh: "edit dong, salah itu harusnya 75k", "tolong dong edit transaksi kemarin, yg buat beli sepatu, harusnya 500k", "revisi nilainya jadi 150000".
 6. DILUAR_KONTEKS : Jika user menyapa atau mengobrol hal selain keuangan keluarga. Contoh: "hi chat", "halo robot".
 
 Suntikan Informasi Konteks Kalender saat ini:
@@ -127,9 +132,15 @@ Suntikan Informasi Konteks Kalender saat ini:
 
 Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
 {
-  "intent": "CATAT|LAPORAN_BULANAN|TANYA_HISTORI|HAPUS|DILUAR_KONTEKS",
+  "intent": "CATAT|LAPORAN_BULANAN|TANYA_HISTORI|HAPUS|EDIT|DILUAR_KONTEKS",
   "alasan": "penjelasan singkat",
-  "target_bulan": "YYYY-MM" (Isi bidang ini khusus untuk intent LAPORAN_BULANAN atau TANYA_HISTORI dengan mengevaluasi konteks waktu yang diminta user. Misal jika user bilang bulan lalu dari juni 2026, maka isinya "2026-05". Jika bulan ini isinya "2026-06". Jika tidak terdeteksi, default gunakan "${bulanBerjalan}")
+  "target_bulan": "${bulanBerjalan}",
+  "edit_parameter": {
+    "target_tanggal": "YYYY-MM-DD", (Kalkulasikan dengan tepat jika user menyebut konteks waktu seperti 'kemarin', '2 hari lalu', atau tanggal tertentu berdasarkan referensi hari ini: ${stringHariIni}. Jika user hanya bilang 'edit yang tadi/barusan' tanpa sebut waktu, isi "")
+    "kata_kunci": "sepatu", (Ambil nama objek, kategori, atau keterangan barang yang ingin dicari untuk dikoreksi nilainya. Jika tidak ada atau hanya edit transaksi barusan, isi "")
+    "nominal_baru": 500000, (Wajib berupa angka bulat hasil ekstraksi nominal baru yang diinginkan user. Contoh: 75k -> 75000, 500k -> 500000)
+    "mode": "SPESIFIK|BARUSAN" (Set 'BARUSAN' jika user hanya bilang 'edit dong harusnya 75k' atau 'salah input tadi'. Set 'SPESIFIK' jika user menyebut nama barang atau waktu lampau seperti kemarin)
+  }
 }`;
     try {
         // REFAKTOR: Menggunakan model dari .env secara dinamis
@@ -327,18 +338,20 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
             return;
         }
         
-        // ============= JALUR F: EDIT NOMINAL TRANSAKSI TERAKHIR =============
+        // ============= JALUR F: EDIT TRANSAKSI DINAMIS (SEARCH-BASED) =============
         if (intentResult.intent === 'EDIT') {
-            const targetBulan = bulanBerjalan;
-            const nominalBaru = parseInt(intentResult.nominal_baru) || 0;
+            const prm = intentResult.edit_parameter;
+            const targetBulan = intentResult.target_bulan || bulanBerjalan;
+            const nominalBaru = parseInt(prm.nominal_baru) || 0;
 
             if (nominalBaru <= 0) {
-                await msg.reply(`⚠️ *Gagal Edit:* Sistem tidak berhasil mengekstrak nominal baru dari pesan Anda. Pastikan menulis angka dengan jelas (Contoh: "harusnya 75k").`);
+                await msg.reply(`⚠️ *Gagal Edit:* Nominal baru tidak valid atau tidak terbaca.`);
                 await chat.clearState();
                 return;
             }
 
-            // 1. Ambil data untuk tahu baris terakhir
+            // 1. Ambil semua data di sheet bulan tersebut
+            await pastikanTabTersedia(TARGET_SPREADSHEET, targetBulan);
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: TARGET_SPREADSHEET,
                 range: `${targetBulan}!A:E`,
@@ -346,30 +359,68 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
 
             const rows = response.data.values;
             if (!rows || rows.length <= 1) {
-                await msg.reply(`⚠️ *Gagal Edit:* Tidak ada data transaksi yang bisa diedit di tab bulan ini.`);
+                await msg.reply(`⚠️ *Gagal Edit:* Tidak ada data transaksi di tab bulan *${targetBulan}*.`);
                 await chat.clearState();
                 return;
             }
 
-            const barisTerakhirIdx = rows.length; // Posisi baris asli di Google Sheet
-            const dataLama = rows[rows.length - 1]; // Data lama sebelum diedit
+            let barisTargetIdx = -1;
+
+            // ==========================================
+            // KONDISI A: EDIT TRANSAKSI BARUSAN
+            // ==========================================
+            if (prm.mode === 'BARUSAN') {
+                // Langsung ambil baris paling bawah
+                barisTargetIdx = rows.length;
+            } 
+            // ==========================================
+            // KONDISI B: CARI BERDASARKAN KONTEKS (SEPATU, KEMARIN, DLL)
+            // ==========================================
+            else {
+                const kataKunciCari = prm.kata_kunci ? prm.kata_kunci.toLowerCase() : '';
+                
+                // Scan dari bawah ke atas (mencari data paling terbaru yang cocok)
+                for (let i = rows.length - 1; i >= 1; i--) {
+                    const [tanggal, kategori, nominal, keterangan, tipe] = rows[i];
+                    
+                    const cocokTanggal = prm.target_tanggal ? (tanggal === prm.target_tanggal) : true;
+                    const cocokKataKunci = kataKunciCari ? (
+                        kategori.toLowerCase().includes(kataKunciCari) || 
+                        keterangan.toLowerCase().includes(kataKunciCari)
+                    ) : true;
+
+                    if (cocokTanggal && cocokKataKunci) {
+                        barisTargetIdx = i + 1; // Konversi ke indeks baris asli Google Sheet (1-based)
+                        break; // Stop loop begitu ketemu yang paling pas
+                    }
+                }
+            }
+
+            // Jika setelah di-scan tidak ada data yang cocok
+            if (barisTargetIdx === -1) {
+                await msg.reply(`🙅‍♂️ *Data Tidak Ditemukan!* Sistem tidak berhasil menemukan transaksi ${prm.target_tanggal || ''} yang cocok dengan kata kunci *"${prm.kata_kunci || ''}"* di tab ${targetBulan}.`);
+                await chat.clearState();
+                return;
+            }
+
+            // 2. Ambil data lama untuk konfirmasi notifikasi
+            const dataLama = rows[barisTargetIdx - 1];
             const nominalLama = parseInt(String(dataLama[2]).replace(/[^0-9]/g, '')) || 0;
 
-            // 2. Eksekusi update HANYA pada Kolom C (Nominal) di baris terakhir tersebut
-            // Kolom C dalam notasi A1 untuk baris terakhir adalah C{barisTerakhirIdx}
+            // 3. Eksekusi Update ke Google Sheet pada Kolom C di baris yang ditemukan
             await sheets.spreadsheets.values.update({
                 spreadsheetId: TARGET_SPREADSHEET,
-                range: `${targetBulan}!C${barisTerakhirIdx}`,
+                range: `${targetBulan}!C${barisTargetIdx}`,
                 valueInputOption: 'USER_ENTERED',
                 requestBody: {
                     values: [[nominalBaru]]
                 }
             });
 
-            // 3. Kirim konfirmasi balik ke WhatsApp
-            const editConfirmationText = `📝 *Revisi Nominal Berhasil!*\n\nTransaksi terakhir telah diperbarui di Google Sheet:\n\n📅 Tanggal: ${dataLama[0]}\n🗂️ Kategori: ${dataLama[1]}\n📝 Keterangan: ${dataLama[3]}\n📊 Tipe: ${dataLama[4]}\n\n💰 *Nominal Lama:* Rp ${nominalLama.toLocaleString('id-ID')}\n🔥 *Nominal Baru:* Rp ${nominalBaru.toLocaleString('id-ID')}`;
+            // 4. Kirim Feedback Sukses ke WhatsApp
+            const editSuccessText = `📝 *Koreksi Data Berhasil!*\n\nSistem menemukan data yang cocok pada baris ke-${barisTargetIdx} dan telah memperbaruinya:\n\n📅 Tanggal: ${dataLama[0]}\n🗂️ Kategori: ${dataLama[1]}\n📝 Keterangan: ${dataLama[3]}\n\n💰 *Nominal Lama:* Rp ${nominalLama.toLocaleString('id-ID')}\n🔥 *Nominal Baru:* Rp ${nominalBaru.toLocaleString('id-ID')}`;
             
-            await msg.reply(editConfirmationText);
+            await msg.reply(editSuccessText);
             await chat.clearState();
             return;
         }
