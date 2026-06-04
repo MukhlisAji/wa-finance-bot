@@ -42,6 +42,16 @@ async function handleIncomingMessage(client, msg) {
     const { sheets, ai } = dapatkanServices();
     if (!sheets || !ai) return;
 
+    console.log('\n=================== RAW DATA START ===================');
+    console.log(`[Raw Type]: ${typeof msg}`);
+    console.log(`[Raw Event Timestamp]: ${new Date().toISOString()}`);
+    console.log('[Raw Payload Object]:');
+    
+    // console.dir dengan depth null akan membongkar seluruh object sampai ke anak cucunya
+    console.dir(msg, { depth: 3, colors: true }); 
+    
+    console.log('=================== RAW DATA END ===================\n');
+
     const pengirimId = msg.from;
     const daftarWhitelist = process.env.WHITELIST_NUMBERS 
         ? process.env.WHITELIST_NUMBERS.split(',').map(num => num.trim()) 
