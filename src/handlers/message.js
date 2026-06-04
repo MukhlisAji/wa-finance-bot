@@ -42,18 +42,18 @@ async function handleIncomingMessage(client, msg) {
     const { sheets, ai } = dapatkanServices();
     if (!sheets || !ai) return;
 
-    console.log('\n=================== RAW DATA START ===================');
+    // console.log('\n=================== RAW DATA START ===================');
     // console.log(`[Raw Type]: ${typeof msg}`);
     // console.log(`[Raw Event Timestamp]: ${new Date().toISOString()}`);
     // console.log('[Raw Payload Object]:');
     const kontak = await msg.getContact();
-    console.log('[No asli]:');
-    console.dir(kontak, { depth: 2, colors: true });
+    // console.log('[No asli]:');
+    // console.dir(kontak, { depth: 2, colors: true });
 
     // // console.dir dengan depth null akan membongkar seluruh object sampai ke anak cucunya
     // console.dir(msg, { depth: 3, colors: true }); 
     
-    console.log('=================== RAW DATA END ===================\n');
+    // console.log('=================== RAW DATA END ===================\n');
     // const kontak = await msg.getContact();
     const nomorPengirim = kontak.id.user;
     const pengirimId = nomorPengirim.replace(/[^0-9]/g, '');;
