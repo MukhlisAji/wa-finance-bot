@@ -56,8 +56,7 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
                 // FIX: Memperbaiki referensi variabel dan struktur pemanggilan SDK Gemini
                 const aiResponse = await ai.models.generateContent({
                     model: TARGET_MODEL,
-                    contents: "Buat pesan pengingat malam pendek karena belum mencatat uang",
-                    systemInstruction: promptReminder,
+                    contents: "EKSEKUSI SEKARANG: Tuliskan 1 pesan pengingat malam langsung untuk saya sesuai aturan. JANGAN berikan pilihan, JANGAN berikan pengantar, langsung muntahkan pesannya saja.",                    systemInstruction: promptReminder,
                     config: { temperature: 0.8 }
                 });
 
@@ -152,8 +151,7 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
             // FIX: Menggeser RANGKUMAN_PROMPT ke systemInstruction agar konsistensi format terjaga ketat
             const aiResponse = await ai.models.generateContent({
                 model: TARGET_MODEL,
-                contents: "Berikan evaluasi singkat dari data pengeluaran yang disediakan.",
-                systemInstruction: RANGKUMAN_PROMPT,
+                contents: "Bongkar semua data keuangan saya bulan lalu secara objektif. Tembak langsung ke akar masalah, jangan menghibur, jangan pakai kalimat pembuka/penutup, langsung muntahkan hasil analisisnya.",                systemInstruction: RANGKUMAN_PROMPT,
                 config: { temperature: 0.5 }
             });
     
