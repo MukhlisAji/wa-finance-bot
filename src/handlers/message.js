@@ -73,6 +73,92 @@ async function handleIncomingMessage(client, msg) {
     const chat = await msg.getChat();
     await chat.sendStateTyping();
 
+    // ==========================================
+    // LAYER KEAMANAN OTOMATIS (ANTI-BALIK FORMAT WA)
+    // ==========================================
+    let apakahUserSah = false;
+    let nomorPengirimBersih = '';
+
+    try {
+        const kontak = await msg.getContact();
+        
+        // Ambil dari id.user jika berisi nomor asli, jika berisi LID ambil dari properti number
+        if (kontak.id && kontak.id.user && !kontak.id.user.startsWith('230') && !kontak.id.user.startsWith('406')) {
+            nomorPengirimBersih = kontak.id.user;
+        } else {
+            nomorPengirimBersih = kontak.number;
+        }
+
+        // Bersihkan murni hanya angka
+        nomorPengirimBersih = nomorPengirimBersih.replace(/[^0-9]/g, '');
+
+        const daftarWhitelist = process.env.WHITELIST_NUMBERS 
+            ? process.env.WHITELIST_NUMBERS.split(',').map(num => num.trim().replace(/[^0-9]/g, '')) 
+            : [];
+
+        apakahUserSah = daftarWhitelist.includes(nomorPengirimBersih);
+        
+        console.log(`[Security Check]: ID Raw From: ${msg.from} | No HP Terdeteksi: ${nomorPengirimBersih} | Status Whitelist: ${apakahUserSah}`);
+
+    } catch (err) {
+        console.error('[Security Error]: Gagal mengekstrak kontak:', err.message);
+    }
+
+    // Jika tidak lolos whitelist, langsung tendang di sini
+    if (!apakahUserSah) {
+        console.log(`[Security Alert]: Chat dari ID: ${msg.from} ditolak karena nomor tidak terdaftar di .env!`);
+        return; 
+    }
+
+    // ==========================================
+    // JALUR KHUSUS: PANDUAN PENGGUNAAN (.menu / .bantuan)
+    // ==========================================
+    if (pesanBersih === 'menu' || pesanBersih === 'bantuan' || pesanBersih === '.menu' || pesanBersih === '.bantuan') {
+        await chat.sendStateTyping(); // Cukup panggil SEKALI di sini saat menu aktif
+        
+        const teksPanduan = `🤖 *PANDUAN BOT KEUANGAN KELUARGA*
+
+        Halo! Mulai sekarang, seluruh pengeluaran dan pemasukan kita bisa dicatat otomatis ke Google Sheet lewat chat ini.
+
+        Berikut adalah cara pakai dan contoh ketikannya:
+
+        📝 *1. Mencatat Transaksi Baru*
+        Langsung ketik barang/nominal secara natural.
+        • _Contoh:_ beli martabak 50k
+        • _Contoh:_ token listrik 200.000 untuk rumah
+        • _Contoh:_ dapat insentif kantor 1.5jt (otomatis masuk pemasukan)
+
+        📊 *2. Melihat Laporan & Summary*
+        Minta rekap atau total pengeluaran ke bot.
+        • _Contoh:_ rekap bulan ini dong
+        • _Contoh:_ total pengeluaran bulan lalu apa aja?
+
+        🔍 *3. Tanya Riwayat Transaksi*
+        • _Contoh:_ kemarin aku beli apa aja ya?
+        • _Contoh:_ tanggal 15 kemarin habis berapa?
+
+        ✏️ *4. Mengoreksi / Mengedit Data*
+        • _Contoh:_ edit yang tadi harusnya 75k (jika salah input barusan)
+        • _Contoh:_ revisi nominal sepatu kemarin jadi 450000
+
+        🗑️ *5. Membatalkan / Menghapus*
+        • _Contoh:_ hapus transaksi terakhir
+        • _Contoh:_ batalin input tadi dong
+
+        💡 *Tips:* Ketik sesantai mungkin seperti chat biasa, AI di bot ini akan langsung pintar membaca nominal dan kategorinya sendiri secara otomatis!
+
+        _Ketik *.menu* kapan saja untuk memunculkan panduan ini kembali._`;
+
+        await msg.reply(teksPanduan);
+        await chat.clearState();
+        return; // POTONG JALUR: Selesai, jangan biarkan masuk ke Gemini
+    }
+
+    // ==========================================
+    // LAYER 1: INTENT CLASSIFICATION (DITERUSKAN KE GEMINI)
+    // ==========================================
+    await chat.sendStateTyping(); // Jalankan typing baru untuk proses Gemini
+
     const stringHariIni = new Date().toLocaleDateString('en-CA', { 
         timeZone: process.env.SYSTEM_TIMEZONE || 'Asia/Jakarta' 
     });
@@ -148,7 +234,7 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
                 return;
             }
 
-            await pastikanTabTersedia(TARGET_SPREADSHEET, targetBulan);
+            await pastikanTabTersedia(sheets, TARGET_SPREADSHEET, targetBulan);
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: TARGET_SPREADSHEET,
                 range: `${targetBulan}!A:E`,
@@ -231,8 +317,7 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
             if (finalNominal <= 0) throw new Error("Nominal transaksi tidak valid.");
 
             const targetTabTransaksi = dataJson.tanggal.substring(0, 7);
-            await pastikanTabTersedia(TARGET_SPREADSHEET, targetTabTransaksi);
-
+            await pastikanTabTersedia(sheets, TARGET_SPREADSHEET, targetTabTransaksi);
             await sheets.spreadsheets.values.append({
                 spreadsheetId: TARGET_SPREADSHEET,
                 range: `${targetTabTransaksi}!A:E`,
@@ -312,7 +397,8 @@ Output WAJIB berupa JSON mentah valid tanpa markdown:
                 return;
             }
 
-            await pastikanTabTersedia(TARGET_SPREADSHEET, targetBulan);
+
+            await pastikanTabTersedia(sheets, TARGET_SPREADSHEET, targetBulan);
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: TARGET_SPREADSHEET,
                 range: `${targetBulan}!A:E`,
