@@ -1,4 +1,7 @@
 const { dapatkanServices } = require('../config/services');
+const { periksaBatasObrolan, resetBatasObrolan } = require('../config/chatGuard'); // <--- TAMBAHKAN INI
+
+// Hapus deklarasi variabel "const pembatasObrolan = {};" lama jika masih ada di sini
 
 async function pastikanTabTersedia(sheets, spreadsheetId, namaTab) {
     try {
@@ -210,19 +213,44 @@ Anda WAJIB merespons HANYA dengan format JSON mentah ini tanpa teks lain:
         const intentResult = JSON.parse(rawIntentText);
         console.log(`[Intent Detected]: ${intentResult.intent}`);
 
-        // ============= JALUR A: DILUAR KONTEKS (SILENT MODE FIXED) =============
+        // ============= JALUR A: DILUAR KONTEKS (BERSIH TANPA INFO KUOTA) =============
         if (intentResult.intent === 'DILUAR_KONTEKS') {
-            const REJECT_PROMPT = `Anda adalah robot akuntan keluarga yang tegas tapi lucu. Tolak pesan user karena tidak ada hubungannya dengan pencatatan keuangan keluarga. Berikan sindiran halus agar kembali fokus mencatat uang. Jangan kaku. Jawab dengan singkat (maksimal 3 kalimat).\n\nPESAN USER: "${userMessage}"`;
-            // REFAKTOR: Menggunakan model dari .env secara dinamis
+            
+            // Panggil modul guard untuk memeriksa status hitungan nomor ini
+            const statusGuard = periksaBatasObrolan(nomorPengirimBersih);
+
+            // Jika status menyatakan terkenaBlokir (sudah chat ke-4 secara beruntun)
+            if (statusGuard.terkenaBlokir) {
+                const teksTegas = `🙅‍♂️ *Sesi Obrolan Ditutup.* \n\nMaaf, saya harus kembali fokus menjaga gerbang brankas keuangan keluarga. \n\nSilakan kirim pesan berupa nominal pengeluaran jika ingin mencatat kembali ya! 📈`;
+                await msg.reply(teksTegas);
+                await chat.clearState();
+                return;
+            }
+
+            // PROMPT BARU: BERSIH, LUCU, TANPA MENYEBUT VARIABEL KUOTA KE USER
+            const REJECT_PROMPT = `Anda adalah robot akuntan keluarga yang cerdas, praktis, dan punya selera humor yang bagus.
+            Pesan user saat ini berada di luar konteks keuangan (mengobrol biasa/menyapa).
+
+            Tugas Anda:
+            1. Jika user mengucapkan terima kasih atau salam penutup, tanggapi dengan sangat sopan, ramah, dan ringkas (1-2 kalimat saja).
+            2. Jika user mengajak mengobrol biasa/bercanda, berikan tanggapan yang lucu atau sindiran halus, kemudian ingatkan mereka dengan cara yang halus dan menggelitik agar kembali fokus ke tujuan utama, yaitu mencatat transaksi keuangan keluarga. Jangan kaku seperti robot.
+
+            PESAN USER: "${userMessage}"`;
+
             const rejectResponse = await ai.models.generateContent({
                 model: TARGET_MODEL,
                 contents: REJECT_PROMPT,
-                config: { temperature: 0.7 }
+                config: { temperature: 0.6 }
             });
+            
             await msg.reply(rejectResponse.text);
             await chat.clearState();
             return;
         }
+
+        // ============= JALUR TRANSAKSI VALID (CATAT, LAPORAN, DLL) =============
+        // Reset counter nomor pengirim karena mereka kembali mencatat dengan benar
+        resetBatasObrolan(nomorPengirimBersih);
 
         // ============= JALUR B: AMBIL DATA SHEET (LAPORAN & HISTORI) =============
         if (intentResult.intent === 'LAPORAN_BULANAN' || intentResult.intent === 'TANYA_HISTORI') {
