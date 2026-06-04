@@ -151,7 +151,7 @@ async function handleIncomingMessage(client, msg) {
 
         💡 *Tips:* Ketik sesantai mungkin seperti chat biasa, AI di bot ini akan langsung pintar membaca nominal dan kategorinya sendiri secara otomatis!
 
-        _Ketik *.menu* kapan saja untuk memunculkan panduan ini kembali._`;
+        _Ketik *menu* kapan saja untuk memunculkan panduan ini kembali._`;
 
         await msg.reply(teksPanduan);
         await chat.clearState();
