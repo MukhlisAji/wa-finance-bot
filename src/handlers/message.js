@@ -113,6 +113,7 @@ async function handleIncomingMessage(client, msg) {
     // ==========================================
     // JALUR KHUSUS: PANDUAN PENGGUNAAN (.menu / .bantuan)
     // ==========================================
+    const pesanBersih = userMessage.toLowerCase();
     if (pesanBersih === 'menu' || pesanBersih === 'bantuan' || pesanBersih === '.menu' || pesanBersih === '.bantuan') {
         await chat.sendStateTyping(); // Cukup panggil SEKALI di sini saat menu aktif
         
