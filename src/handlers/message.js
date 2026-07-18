@@ -72,7 +72,7 @@ async function handleIncomingMessage(client, msg) {
 
     console.log(`[Bot Engine]: Memproses chat sah dari: ${pengirimId}`);
 
-`   let chat = null;
+    let chat = null;
 
     try {
         // 1. Tentukan target ID yang aman (utamakan format @c.us dari kontak, bukan @lid dari pesan)
