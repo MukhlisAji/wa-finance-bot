@@ -86,10 +86,19 @@ async function handleIncomingMessage(client, msg) {
         const targetChatId = (kontak && kontak.id && kontak.id._serialized) 
             ? kontak.id._serialized 
             : msg.from;
-        chat = await client.getChatById(targetChatId);
+
+        // SOLUSI FORUM: Lewati getChatById, langsung injeksi fungsi ke halaman Puppeteer
+        await client.pupPage.evaluate((chatId) => {
+            if (window.WWebJS && typeof window.WWebJS.sendChatstate === 'function') {
+                return window.WWebJS.sendChatstate('typing', chatId);
+            }
+            throw new Error("WWebJS.sendChatstate tidak tersedia di browser");
+        }, targetChatId);
+
     } catch (e) {
         console.warn(`[Warning]: Gagal mengaktifkan typing state untuk ${msg.from} | Error: ${e.message}`);
     }
+
 
     await safeTyping(chat); // <--- Menggunakan helper aman
 

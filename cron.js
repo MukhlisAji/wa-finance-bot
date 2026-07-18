@@ -30,7 +30,8 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
         }
 
         try {
-            await pastikanTabTersedia(process.env.SPREADSHEET_ID, bulanBerjalan);
+            // FIX: Menambahkan parameter 'sheets' sebagai argumen pertama
+            await pastikanTabTersedia(sheets, process.env.SPREADSHEET_ID, bulanBerjalan);
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: process.env.SPREADSHEET_ID,
                 range: `${bulanBerjalan}!A:E`,
@@ -109,7 +110,8 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
         if (targetNomorArray.length === 0) return;
     
         try {
-            await pastikanTabTersedia(process.env.SPREADSHEET_ID, targetBulan);
+            // FIX: Menambahkan parameter 'sheets' sebagai argumen pertama
+            await pastikanTabTersedia(sheets, process.env.SPREADSHEET_ID, targetBulan);
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: process.env.SPREADSHEET_ID,
                 range: `${targetBulan}!A:E`,
