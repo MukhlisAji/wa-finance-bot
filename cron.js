@@ -7,9 +7,9 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
     const TIMEZONE_CONFIG = process.env.SYSTEM_TIMEZONE || 'Asia/Jakarta';
 
     const dapatkanTargetNomor = () => {
-        return process.env.WHITELIST_NUMBERS 
-            ? process.env.WHITELIST_NUMBERS.split(',').map(num => num.trim()) 
-            : [];
+    return process.env.WHITELIST_NUMBERS 
+        ? process.env.WHITELIST_NUMBERS.split(',').map(num => num.trim().replace(/[^0-9]/g, '')) 
+        : [];
     };
 
     // =========================================================================
@@ -60,10 +60,19 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
                     contents: "EKSEKUSI SEKARANG: Tuliskan 1 pesan pengingat malam langsung untuk saya sesuai aturan. JANGAN berikan pilihan, JANGAN berikan pengantar, langsung muntahkan pesannya saja.",                    systemInstruction: promptReminder,
                     config: { temperature: 0.8 }
                 });
-
-                for (const nomorTujuan of targetNomorArray) {
-                    await client.sendMessage(nomorTujuan, `🔔 *PENGINGAT MALAM KELUARGA*\n\n${aiResponse.text}`);
-                    console.log(`[Cron Job]: Pesan reminder harian terkirim ke: ${nomorTujuan}`);
+                
+                for (const nomorMurni of targetNomorArray) {
+    
+                    // KODE INI YANG MENJEMBATANI:
+                    // Mengubah angka murni "6282299112814" menjadi format JID "6282299112814@c.us" saat eksekusi
+                    const targetJid = `${nomorMurni}@c.us`; 
+                    
+                    try {
+                        await client.sendMessage(targetJid, `🔔 *PENGINGAT MALAM KELUARGA*\n\n${aiResponse.text}`);
+                        console.log(`[Cron Job]: Pesan berhasil terkirim ke: ${targetJid}`);
+                    } catch (err) {
+                        console.error(`[Cron Error]: Gagal mengirim ke ${targetJid}:`, err.message);
+                    }
                 }
             
             // KONDISI B: JIKA SUDAH DISIPLIN MENCATAT HARI INI
