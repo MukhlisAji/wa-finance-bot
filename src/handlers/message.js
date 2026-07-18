@@ -49,7 +49,6 @@ async function handleIncomingMessage(client, msg) {
     // console.log(`[Raw Type]: ${typeof msg}`);
     // console.log(`[Raw Event Timestamp]: ${new Date().toISOString()}`);
     // console.log('[Raw Payload Object]:');
-    const kontak = await msg.getContact();
     // console.log('[No asli]:');
     // console.dir(kontak, { depth: 2, colors: true });
 
