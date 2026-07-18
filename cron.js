@@ -41,6 +41,7 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
             let sudahCatatHariIni = false;
 
             if (rows && rows.length > 1) {
+                // Memastikan stringHariIni cocok dengan kolom pertama di spreadsheet
                 sudahCatatHariIni = rows.some(row => row[0] === stringHariIni);
             }
 
@@ -54,24 +55,28 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
                 2. Gunakan emoji yg sesuai dan proper, jangan berlebihan.
                 3. Jangan bertele-tele, jangan membuat analogi panjang, dan jangan kaku seperti robot.`;                
                 
-                // FIX: Memperbaiki referensi variabel dan struktur pemanggilan SDK Gemini
+                // FIX: Memperbaiki referensi variabel dan struktur pemanggilan SDK Gemini (.response.text())
                 const aiResponse = await ai.models.generateContent({
                     model: TARGET_MODEL,
-                    contents: "EKSEKUSI SEKARANG: Tuliskan 1 pesan pengingat malam langsung untuk saya sesuai aturan. JANGAN berikan pilihan, JANGAN berikan pengantar, langsung muntahkan pesannya saja.",                    systemInstruction: promptReminder,
-                    config: { temperature: 0.8 }
+                    contents: [{ role: 'user', parts: [{ text: "EKSEKUSI SEKARANG: Tuliskan 1 pesan pengingat malam langsung untuk saya sesuai aturan. JANGAN berikan pilihan, JANGAN berikan pengantar, langsung muntahkan pesannya saja." }] }],
+                    systemInstruction: promptReminder,
+                    generationConfig: { temperature: 0.8 }
                 });
-                
+
+                // Mengambil teks hasil generate dengan benar
+                const pesanAi = aiResponse.response.text();
+
                 for (const nomorMurni of targetNomorArray) {
-    
                     // KODE INI YANG MENJEMBATANI:
-                    // Mengubah angka murni "6282299112814" menjadi format JID "6282299112814@c.us" saat eksekusi
-                    const targetJid = `${nomorMurni}@c.us`; 
+                    // Memastikan format JID benar (menghindari error 't' atau 'r')
+                    const targetJid = nomorMurni.includes('@c.us') ? nomorMurni : `${nomorMurni}@c.us`; 
                     
                     try {
-                        await client.sendMessage(targetJid, `🔔 *PENGINGAT MALAM KELUARGA*\n\n${aiResponse.text}`);
-                        console.log(`[Cron Job]: Pesan berhasil terkirim ke: ${targetJid}`);
+                        // Gunakan pesanAi (hasil .text()), bukan aiResponse.text
+                        await client.sendMessage(targetJid, `🔔 *PENGINGAT MALAM KELUARGA*\n\n${pesanAi}`);
+                        console.log(`[Cron Job]: Pesan reminder berhasil terkirim ke: ${targetJid}`);
                     } catch (err) {
-                        console.error(`[Cron Error]: Gagal mengirim ke ${targetJid}:`, err.message);
+                        console.error(`[Cron Error]: Gagal mengirim reminder ke ${targetJid}:`, err.message);
                     }
                 }
             
@@ -85,21 +90,31 @@ function jalankanOtomatisasi(client, sheets, ai, pastikanTabTersedia) {
                 2. Gunakan emoji yg sesuai dan proper, jangan berlebihan.
                 3. Jangan bertele-tele, jangan membuat analogi panjang, dan jangan kaku seperti robot.`; 
                 
-                // FIX: Memperbaiki struktur pemanggilan SDK Gemini
+                // FIX: Memperbaiki struktur pemanggilan SDK Gemini (.response.text())
                 const aiResponse = await ai.models.generateContent({
                     model: TARGET_MODEL,
-                    contents: "Buat ucapan terima kasih apresiatif karena sudah mencatat keuangan hari ini",
+                    contents: [{ role: 'user', parts: [{ text: "Buat ucapan terima kasih apresiatif karena sudah mencatat keuangan hari ini" }] }],
                     systemInstruction: promptApresiasi,
-                    config: { temperature: 0.8 }
+                    generationConfig: { temperature: 0.8 }
                 });
 
-                for (const nomorTujuan of targetNomorArray) {
-                    await client.sendMessage(nomorTujuan, `💖 *APRESIASI DISIPLIN KEUANGAN*\n\n${aiResponse.text}`);
-                    console.log(`[Cron Job]: Pesan apresiasi harian terkirim ke: ${nomorTujuan}`);
+                const pesanApresiasiAi = aiResponse.response.text();
+
+                for (const nomorMurni of targetNomorArray) {
+                    // FIX: Pastikan nomor tujuan dikonversi ke JID @c.us
+                    const targetJid = nomorMurni.includes('@c.us') ? nomorMurni : `${nomorMurni}@c.us`;
+
+                    try {
+                        await client.sendMessage(targetJid, `💖 *APRESIASI DISIPLIN KEUANGAN*\n\n${pesanApresiasiAi}`);
+                        console.log(`[Cron Job]: Pesan apresiasi harian terkirim ke: ${targetJid}`);
+                    } catch (err) {
+                        console.error(`[Cron Error]: Gagal mengirim apresiasi ke ${targetJid}:`, err.message);
+                    }
                 }
             }
         } catch (error) {
-            console.error('Gagal mengeksekusi Cron Reminder/Apresiasi:', error.message);
+            // Memberikan log yang lebih detail jika terjadi error internal (seperti Error: t)
+            console.error('Gagal mengeksekusi Cron Reminder/Apresiasi:', error);
         }
     }, {
         scheduled: true,
