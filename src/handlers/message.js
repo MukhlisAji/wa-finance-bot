@@ -45,18 +45,18 @@ async function handleIncomingMessage(client, msg) {
     const { sheets, ai } = dapatkanServices();
     if (!sheets || !ai) return;
 
-    // console.log('\n=================== RAW DATA START ===================');
-    // console.log(`[Raw Type]: ${typeof msg}`);
-    // console.log(`[Raw Event Timestamp]: ${new Date().toISOString()}`);
+    console.log('\n=================== RAW DATA START ===================');
+    console.log(`[Raw Type]: ${typeof msg}`);
+    console.log(`[Raw Event Timestamp]: ${new Date().toISOString()}`);
     // console.log('[Raw Payload Object]:');
     const kontak = await msg.getContact();
-    // console.log('[No asli]:');
-    // console.dir(kontak, { depth: 2, colors: true });
+    console.log('[No asli]:');
+    console.dir(kontak, { depth: 2, colors: true });
 
-    // // console.dir dengan depth null akan membongkar seluruh object sampai ke anak cucunya
-    // console.dir(msg, { depth: 3, colors: true }); 
+    // console.dir dengan depth null akan membongkar seluruh object sampai ke anak cucunya
+    console.dir(msg, { depth: 3, colors: true }); 
     
-    // console.log('=================== RAW DATA END ===================\n');
+    console.log('=================== RAW DATA END ===================\n');
     // const kontak = await msg.getContact();
     const nomorPengirim = kontak.id.user;
     const pengirimId = nomorPengirim.replace(/[^0-9]/g, '');;
@@ -73,8 +73,22 @@ async function handleIncomingMessage(client, msg) {
     if (!userMessage) return;
 
     console.log(`[Bot Engine]: Memproses chat sah dari: ${pengirimId}`);
+
+    // Tambahkan pengecekan null/undefined
     const chat = await msg.getChat();
-    await chat.sendStateTyping();
+
+    if (!chat) {
+        console.error(`[Error]: Gagal mendapatkan objek chat untuk pengirim: ${pengirimId}`);
+        return; // Berhenti di sini, jangan dipaksa lanjut ke sendStateTyping
+    }
+
+    // Tambahkan try-catch khusus untuk operasi browser
+    try {
+        await chat.sendStateTyping();
+    } catch (e) {
+        console.warn(`[Warning]: Tidak bisa mengirim status 'typing' untuk ${pengirimId}: ${e.message}`);
+        // Tidak usah di-return, biarkan alur tetap lanjut
+    }
 
     // ==========================================
     // LAYER KEAMANAN OTOMATIS (ANTI-BALIK FORMAT WA)
