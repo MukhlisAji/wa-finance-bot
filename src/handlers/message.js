@@ -45,21 +45,32 @@ async function handleIncomingMessage(client, msg) {
     const { sheets, ai } = dapatkanServices();
     if (!sheets || !ai) return;
 
-    console.log('\n=================== RAW DATA START ===================');
-    console.log(`[Raw Type]: ${typeof msg}`);
-    console.log(`[Raw Event Timestamp]: ${new Date().toISOString()}`);
+    // console.log('\n=================== RAW DATA START ===================');
+    // console.log(`[Raw Type]: ${typeof msg}`);
+    // console.log(`[Raw Event Timestamp]: ${new Date().toISOString()}`);
     // console.log('[Raw Payload Object]:');
     const kontak = await msg.getContact();
-    console.log('[No asli]:');
-    console.dir(kontak, { depth: 2, colors: true });
+    // console.log('[No asli]:');
+    // console.dir(kontak, { depth: 2, colors: true });
 
     // console.dir dengan depth null akan membongkar seluruh object sampai ke anak cucunya
-    console.dir(msg, { depth: 3, colors: true }); 
+    // console.dir(msg, { depth: 3, colors: true }); 
     
-    console.log('=================== RAW DATA END ===================\n');
+    // console.log('=================== RAW DATA END ===================\n');
     // const kontak = await msg.getContact();
-    const nomorPengirim = kontak.id.user;
-    const pengirimId = nomorPengirim.replace(/[^0-9]/g, '');;
+    const kontak = await msg.getContact();
+
+    let pengirimId = '';
+
+    // Jika ID mengandung '@lid', kita tidak bisa mengandalkan id.user
+    // Kita harus menggunakan kontak.number yang biasanya berisi nomor internasional tanpa '+'
+    if (msg.from.includes('@lid')) {
+        pengirimId = kontak.number.replace(/[^0-9]/g, '');
+    } else {
+        pengirimId = kontak.id.user.replace(/[^0-9]/g, '');
+    }
+
+    console.log(`[Debug]: ID Raw: ${msg.from} | Hasil Ekstraksi: ${pengirimId}`);    
     const daftarWhitelist = process.env.WHITELIST_NUMBERS 
         ? process.env.WHITELIST_NUMBERS.split(',').map(num => num.trim()) 
         : [];
