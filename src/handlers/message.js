@@ -45,10 +45,10 @@ async function handleIncomingMessage(client, msg) {
     const { sheets, ai } = dapatkanServices();
     if (!sheets || !ai) return;
 
-    console.log('\n=================== RAW DATA START ===================');
-    console.log(`[Raw Type]: ${typeof msg}`);
-    console.log(`[chat]: ${msg.getChat}`);
-    console.log(`[contact]: ${msg.getContact}`);
+    // console.log('\n=================== RAW DATA START ===================');
+    // console.log(`[Raw Type]: ${typeof msg}`);
+    // console.log(`[chat]: ${msg.getChat}`);
+    // console.log(`[contact]: ${msg.getContact}`);
 
 
     // // console.dir dengan depth null akan membongkar seluruh object sampai ke anak cucunya
@@ -72,20 +72,24 @@ async function handleIncomingMessage(client, msg) {
 
     console.log(`[Bot Engine]: Memproses chat sah dari: ${pengirimId}`);
 
-    // Tambahkan pengecekan null/undefined
-    const chat = await msg.getChat();
+`   let chat = null;
 
-    if (!chat) {
-        console.error(`[Error]: Gagal mendapatkan objek chat untuk pengirim: ${pengirimId}`);
-        return; // Berhenti di sini, jangan dipaksa lanjut ke sendStateTyping
-    }
-
-    // Tambahkan try-catch khusus untuk operasi browser
     try {
-        await chat.sendStateTyping();
+        // 1. Tentukan target ID yang aman (utamakan format @c.us dari kontak, bukan @lid dari pesan)
+        const targetChatId = (kontak && kontak.id && kontak.id._serialized) 
+            ? kontak.id._serialized 
+            : msg.from;
+
+        // 2. Ambil chat menggunakan client.getChatById, BUKAN msg.getChat()
+        chat = await client.getChatById(targetChatId);
+
+        // 3. Eksekusi typing state jika objek chat berhasil didapat
+        if (chat) {
+            await chat.sendStateTyping();
+        }
     } catch (e) {
-        console.warn(`[Warning]: Tidak bisa mengirim status 'typing' untuk ${pengirimId}: ${e.message}`);
-        // Tidak usah di-return, biarkan alur tetap lanjut
+        // Jika WWebJS tetap gagal karena pembaruan DOM WhatsApp, sistem TIDAK AKAN CRASH.
+        console.warn(`[Warning]: Gagal mengaktifkan typing state untuk ${msg.from} | Error: ${e.message}`);
     }
 
     // ==========================================
